@@ -1,0 +1,251 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = ReplicatedStorage:FindFirstChild("Remotes") or ReplicatedStorage:WaitForChild("RemoteEvents")
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RS = game:GetService("RunService")
+local LP = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local TweenService = game:GetService("TweenService")
+
+local SETTINGS = {
+    WALLHACK = false,
+    CHAMS = true,
+    BOX_ESP = true,
+    TRACER_ESP = true,
+    NO_WALL_COLLISION = false,
+    WALLSHOT = false,  
+    MENU_OPEN = false
+}
+
+local mapModel = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("Hellmet") or workspace:FindFirstChild("Hellmet")
+local wallParts = {}
+
+if mapModel then
+    for _, obj in ipairs(mapModel:GetDescendants()) do
+        if obj:IsA("BasePart") and obj.CanCollide then
+            table.insert(wallParts, obj)
+        end
+    end
+end
+
+local function setupWallshot()
+    local originalRemote
+    for _, remote in ipairs(Remotes:GetChildren()) do
+        if remote:IsA("RemoteEvent") and remote.Name:lower():find("shoot") then
+            originalRemote = remote
+            break
+        end
+    end
+
+    if originalRemote then
+        local oldFireServer = originalRemote.FireServer
+        originalRemote.FireServer = function(self, ...)
+            if SETTINGS.WALLSHOT then
+                local args = {...}
+                if args[2] then --
+                    args[2].FilterDescendantsInstances = {LP.Character}
+                    args[2].FilterType = Enum.RaycastFilterType.Blacklist
+                end
+                return oldFireServer(self, unpack(args))
+            end
+            return oldFireServer(self, ...)
+        end
+    end
+end
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.K then
+        SETTINGS.WALLSHOT = not SETTINGS.WALLSHOT
+        if SETTINGS.WALLSHOT then
+            print("Wallshot on")
+        else
+            print("Wallshot off”)
+        end
+    end
+end)
+
+RS.Heartbeat:Connect(function()
+    if SETTINGS.WALLSHOT and UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LP.Character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+        local ray = workspace:Raycast(
+            Camera.CFrame.Position,
+            Camera.CFrame.LookVector * 1000,
+            raycastParams
+        )
+    end
+end)
+
+local highlights = {}
+local boxes = {}
+local tracers = {}
+
+local function updateChams()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            local char = player.Character
+            if not highlights[char] and SETTINGS.CHAMS then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = "HellmetChams"
+                highlight.FillColor = player.Team == LP.Team and Color3.new(0,1,0) or Color3.new(1,0,0)
+                highlight.OutlineColor = highlight.FillColor
+                highlight.FillTransparency = 0.5
+                highlight.Parent = char
+                highlights[char] = highlight
+            end
+        end
+    end
+end
+
+local function update2DESP()
+    for target, box in pairs(boxes) do
+        if target.Parent and target:FindFirstChild("HumanoidRootPart") then
+            local pos, vis = Camera:WorldToViewportPoint(target.HumanoidRootPart.Position)
+            if vis then
+                if SETTINGS.BOX_ESP then
+                    box.Size = Vector2.new(2000/pos.Z, 3500/pos.Z)
+                    box.Position = Vector2.new(pos.X - box.Size.X/2, pos.Y - box.Size.Y/2)
+                    box.Visible = true
+else
+                    box.Visible = false
+                end
+
+                if SETTINGS.TRACER_ESP then
+                    tracers[target].From = Vector2.new(Camera.ViewportSize.X/2, 0)
+                    tracers[target].To = Vector2.new(pos.X, pos.Y)
+                    tracers[target].Visible = true
+                else
+                    tracers[target].Visible = false
+                end
+            else
+                box.Visible = false
+                tracers[target].Visible = false
+            end
+        else
+            if box then box:Remove() end
+            if tracers[target] then tracers[target]:Remove() end
+            boxes[target] = nil
+            tracers[target] = nil
+        end
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character and not boxes[player.Character] then
+            local char = player.Character
+            boxes[char] = Drawing.new("Square")
+            boxes[char].Visible = false
+            boxes[char].Color = player.Team == LP.Team and Color3.new(0,1,0) or Color3.new(1,0,0)
+            boxes[char].Thickness = 2
+
+            tracers[char] = Drawing.new("Line")
+            tracers[char].Visible = false
+            tracers[char].Color = boxes[char].Color
+            tracers[char].Thickness = 1
+        end
+    end
+end
+
+local function updateWallhack()
+    if not SETTINGS.WALLHACK then
+        for _, wall in ipairs(wallParts) do
+            if wall and wall.Parent then
+                wall.Transparency = 0
+            end
+        end
+        return
+    end
+
+    for _, wall in ipairs(wallParts) do
+        if wall and wall.Parent then
+            wall.Transparency = 0.8
+        end
+    end
+end
+
+local function updateWallCollisions()
+    for _, wall in ipairs(wallParts) do
+        if wall and wall.Parent then
+            wall.CanCollide = not SETTINGS.NO_WALL_COLLISION
+        end
+    end
+end
+
+local button1 = createButton("Wallhack: OFF", Color3.fromRGB(255, 120, 50))
+local button2 = createButton("No Walls: OFF", Color3.fromRGB(200, 50, 50))
+local button3 = createButton("Close", Color3.fromRGB(100, 100, 100))
+
+button1.MouseButton1Click:Connect(function()
+    SETTINGS.WALLHACK = not SETTINGS.WALLHACK
+    button1.Text = "Wallhack: " .. (SETTINGS.WALLHACK and "ON" or "OFF")
+    button1.BackgroundColor3 = SETTINGS.WALLHACK and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(255, 120, 50)
+end)
+
+button2.MouseButton1Click:Connect(function()
+    SETTINGS.NO_WALL_COLLISION = not SETTINGS.NO_WALL_COLLISION
+    button2.Text = "No Walls: " .. (SETTINGS.NO_WALL_COLLISION and "ON" or "OFF")
+    button2.BackgroundColor3 = SETTINGS.NO_WALL_COLLISION and Color3.fromRGB(0, 200, 100) or Color3.fromRGB(200, 50, 50)
+end)
+
+button3.MouseButton1Click:Connect(function()
+    toggleMenu()
+end)
+
+local function toggleMenu()
+    SETTINGS.MENU_OPEN = not SETTINGS.MENU_OPEN
+    mainFrame.Visible = SETTINGS.MENU_OPEN
+    
+    if SETTINGS.MENU_OPEN then
+        createBlur()
+        mainFrame.Size = UDim2.new(0, 10, 0, 10)
+        mainFrame.Position = UDim2.new(0.5, -5, 0.5, -5)
+        mainFrame.Visible = true
+        TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+            Size = UDim2.new(0, 700, 0, 400),
+            Position = UDim2.new(0.5, -350, 0.5, -200)
+        }):Play()
+    else
+        TweenService:Create(blur, TweenInfo.new(0.3), {Size = 0}):Play()
+        TweenService:Create(mainFrame, TweenInfo.new(0.3), {
+            Size = UDim2.new(0, 10, 0, 10),
+            Position = UDim2.new(0.5, -5, 0.5, -5)
+        }):Play()
+        task.wait(0.3)
+        mainFrame.Visible = false
+    end
+end
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.J then
+        toggleMenu()
+    end
+end)
+
+RS.Heartbeat:Connect(function()
+    updateChams()
+    update2DESP()
+    updateWallhack()
+    updateWallCollisions()
+end)
+game:BindToClose(function()
+    for _, highlight in pairs(highlights) do
+        if highlight and highlight.Parent then
+            highlight:Destroy()
+        end
+    end
+
+    for _, box in pairs(boxes) do
+        if box then
+            box:Remove()
+        end
+    end
+
+    for _, tracer in pairs(tracers) do
+        if tracer then
+            tracer:Remove()
+        end
+    end
+end)
+
+setupWallshot()
